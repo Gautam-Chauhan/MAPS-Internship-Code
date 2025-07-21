@@ -117,7 +117,7 @@ def split(df, group):
     return [data(filename, gb.get_group(x)) for filename, x in zip(gb.groups.keys(), gb.groups)]
 
 
-def create_tf_example(group, path):
+def create_tf_example(group, path, source_id):
     # DEBUGGING: Added .io after tf
     with tf.io.gfile.GFile(os.path.join(path, '{}'.format(group.filename)), 'rb') as fid:
         encoded_jpg = fid.read()
@@ -126,27 +126,49 @@ def create_tf_example(group, path):
     width, height = image.size
 
     filename = group.filename.encode('utf8')
-    image_format = b'jpg'
+    # EDIT: use a jpg image format if the filename ends with ".jpg"
+    if group.filename.lower().endswith('.jpg'):
+        image_format = b'jpg'
+    else:
+        image_format = b'png'
     xmins = []
     xmaxs = []
     ymins = []
     ymaxs = []
     classes_text = []
     classes = []
+    # EDIT: Add extra variables for the area of the bounding boxes and the 'iscrowd' flag
+    areas = []
+    is_crowd = []
+
+    # EDIT: Convert the source_id to a Byte String
+    source_id = str(source_id).encode('utf8')
 
     for index, row in group.object.iterrows():
-        xmins.append(row['xmin'] / width)
-        xmaxs.append(row['xmax'] / width)
-        ymins.append(row['ymin'] / height)
-        ymaxs.append(row['ymax'] / height)
+        # EDIT
+        xmin_norm = row['xmin'] / width
+        xmax_norm = row['xmax'] / width
+        ymin_norm = row['ymin'] / height
+        ymax_norm = row['ymax'] / height
+
+        xmins.append(xmin_norm)
+        xmaxs.append(xmax_norm)
+        ymins.append(ymin_norm)
+        ymaxs.append(ymax_norm)
+        
+        # EDIT: Calculate the area of each bounding box and append 0 for the is_crowd feature
+        areas.append((xmax_norm - xmin_norm) * (ymax_norm - ymin_norm))
+        is_crowd.append(0)
+
         classes_text.append(row['class'].encode('utf8'))
         classes.append(class_text_to_int(row['class']))
+
 
     tf_example = tf.train.Example(features=tf.train.Features(feature={
         'image/height': dataset_util.int64_feature(height),
         'image/width': dataset_util.int64_feature(width),
         'image/filename': dataset_util.bytes_feature(filename),
-        'image/source_id': dataset_util.bytes_feature(filename),
+        'image/source_id': dataset_util.bytes_feature(source_id),
         'image/encoded': dataset_util.bytes_feature(encoded_jpg),
         'image/format': dataset_util.bytes_feature(image_format),
         'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
@@ -155,6 +177,8 @@ def create_tf_example(group, path):
         'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
         'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
         'image/object/class/label': dataset_util.int64_list_feature(classes),
+        'image/object/area': dataset_util.float_list_feature(areas),
+        'image/object/is_crowd': dataset_util.int64_list_feature(is_crowd)
     }))
     return tf_example
 
@@ -165,9 +189,12 @@ def main(_):
     path = os.path.join(args.image_dir)
     examples = xml_to_csv(args.xml_dir)
     grouped = split(examples, 'filename')
+    i=0
     for group in grouped:
-        tf_example = create_tf_example(group, path)
+        # EDIT: Add extra variable which is the source_id (a unique number for the file represented by the counter)
+        tf_example = create_tf_example(group, path, source_id = i)
         writer.write(tf_example.SerializeToString())
+        i+=1
     writer.close()
     print('Successfully created the TFRecord file: {}'.format(args.output_path))
     if args.csv_path is not None:
