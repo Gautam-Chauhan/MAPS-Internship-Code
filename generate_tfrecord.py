@@ -120,17 +120,16 @@ def split(df, group):
 def create_tf_example(group, path, source_id):
     # DEBUGGING: Added .io after tf
     with tf.io.gfile.GFile(os.path.join(path, '{}'.format(group.filename)), 'rb') as fid:
-        encoded_jpg = fid.read()
-    encoded_jpg_io = io.BytesIO(encoded_jpg)
-    image = Image.open(encoded_jpg_io)
+        encoded_img = fid.read()
+    encoded_img_io = io.BytesIO(encoded_img)
+    image = Image.open(encoded_img_io)
     width, height = image.size
 
     filename = group.filename.encode('utf8')
-    # EDIT: use a jpg image format if the filename ends with ".jpg"
-    if group.filename.lower().endswith('.jpg'):
-        image_format = b'jpg'
-    else:
-        image_format = b'png'
+    # EDIT: Even if the input image is a png, save in jpg format
+    # to (hopefully) avoid problems later on with training
+    image_format = b'jpg'
+
     xmins = []
     xmaxs = []
     ymins = []
@@ -143,6 +142,9 @@ def create_tf_example(group, path, source_id):
 
     # EDIT: Convert the source_id to a Byte String
     source_id = str(source_id).encode('utf8')
+
+    # EDIT: Convert the image to a jpeg format regardless of the original file format
+    jpeg_string = tf.io.encode_jpeg(image, quality=95)
 
     for index, row in group.object.iterrows():
         # EDIT
@@ -169,7 +171,7 @@ def create_tf_example(group, path, source_id):
         'image/width': dataset_util.int64_feature(width),
         'image/filename': dataset_util.bytes_feature(filename),
         'image/source_id': dataset_util.bytes_feature(source_id),
-        'image/encoded': dataset_util.bytes_feature(encoded_jpg),
+        'image/encoded': dataset_util.bytes_feature(jpeg_string.numpy()),
         'image/format': dataset_util.bytes_feature(image_format),
         'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
         'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
